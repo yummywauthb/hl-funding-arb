@@ -1,6 +1,8 @@
 import { DexPair } from "./types.js";
+import { getCMCContractAddresses, isCMCEnabled } from "./coinmarketcap.js";
 
 const DEXSCREENER_API = "https://api.dexscreener.com/latest/dex";
+const GECKOTERMINAL_API = "https://api.geckoterminal.com/api/v2";
 
 // Chain mappings
 const CHAINS = {
@@ -70,51 +72,105 @@ async function fetchWithRetry(url: string, retries = 3): Promise<any> {
 
 export async function searchTokenOnDex(symbol: string): Promise<DexPair[]> {
   const results: DexPair[] = [];
+  const seenPairs = new Set<string>();
   
+  // Helper to add pair without duplicates
+  const addPair = (pair: DexPair) => {
+    const key = `${pair.chain}:${pair.pairAddress}`;
+    if (!seenPairs.has(key)) {
+      seenPairs.add(key);
+      results.push(pair);
+    }
+  };
+  
+  // 1. Search by symbol on DexScreener
   try {
-    // Search by symbol
     const data = await fetchWithRetry(
       `${DEXSCREENER_API}/search?q=${encodeURIComponent(symbol)}`
     );
     
-    if (!data.pairs || !Array.isArray(data.pairs)) {
-      return results;
-    }
-    
-    for (const pair of data.pairs as DexScreenerPair[]) {
-      // Only include supported chains
-      if (!["ethereum", "base", "bsc"].includes(pair.chainId)) continue;
-      
-      // Check if base token matches our symbol (case insensitive)
-      if (pair.baseToken.symbol.toUpperCase() !== symbol.toUpperCase()) continue;
-      
-      // Filter by minimum liquidity
-      const liquidity = pair.liquidity?.usd ?? 0;
-      if (liquidity < MIN_LIQUIDITY) continue;
-      
-      results.push({
-        chain: pair.chainId,
-        dex: pair.dexId,
-        pairAddress: pair.pairAddress,
-        baseToken: {
-          address: pair.baseToken.address,
-          symbol: pair.baseToken.symbol,
-          name: pair.baseToken.name,
-        },
-        quoteToken: {
-          address: pair.quoteToken.address,
-          symbol: pair.quoteToken.symbol,
-        },
-        priceUsd: parseFloat(pair.priceUsd) || 0,
-        liquidity,
-        volume24h: pair.volume?.h24 ?? 0,
-        priceChange24h: pair.priceChange?.h24 ?? 0,
-        fdv: pair.fdv ?? 0,
-        url: pair.url,
-      });
+    if (data?.pairs && Array.isArray(data.pairs)) {
+      for (const pair of data.pairs as DexScreenerPair[]) {
+        if (!["ethereum", "base", "bsc"].includes(pair.chainId)) continue;
+        if (pair.baseToken.symbol.toUpperCase() !== symbol.toUpperCase()) continue;
+        
+        const liquidity = pair.liquidity?.usd ?? 0;
+        if (liquidity < MIN_LIQUIDITY) continue;
+        
+        addPair({
+          chain: pair.chainId,
+          dex: pair.dexId,
+          pairAddress: pair.pairAddress,
+          baseToken: {
+            address: pair.baseToken.address,
+            symbol: pair.baseToken.symbol,
+            name: pair.baseToken.name,
+          },
+          quoteToken: {
+            address: pair.quoteToken.address,
+            symbol: pair.quoteToken.symbol,
+          },
+          priceUsd: parseFloat(pair.priceUsd) || 0,
+          liquidity,
+          volume24h: pair.volume?.h24 ?? 0,
+          priceChange24h: pair.priceChange?.h24 ?? 0,
+          fdv: pair.fdv ?? 0,
+          url: pair.url,
+        });
+      }
     }
   } catch (err: any) {
     console.error(`DexScreener search error for ${symbol}:`, err.message);
+  }
+  
+  // 2. If CMC is enabled, search by contract addresses
+  if (isCMCEnabled()) {
+    try {
+      const contracts = await getCMCContractAddresses(symbol);
+      
+      for (const [chain, address] of contracts) {
+        if (!["ethereum", "base", "bsc"].includes(chain)) continue;
+        
+        // Search by contract address
+        const data = await fetchWithRetry(
+          `${DEXSCREENER_API}/tokens/${address}`
+        );
+        
+        if (data?.pairs && Array.isArray(data.pairs)) {
+          for (const pair of data.pairs as DexScreenerPair[]) {
+            if (pair.chainId !== chain) continue;
+            
+            const liquidity = pair.liquidity?.usd ?? 0;
+            if (liquidity < MIN_LIQUIDITY) continue;
+            
+            addPair({
+              chain: pair.chainId,
+              dex: pair.dexId,
+              pairAddress: pair.pairAddress,
+              baseToken: {
+                address: pair.baseToken.address,
+                symbol: pair.baseToken.symbol,
+                name: pair.baseToken.name,
+              },
+              quoteToken: {
+                address: pair.quoteToken.address,
+                symbol: pair.quoteToken.symbol,
+              },
+              priceUsd: parseFloat(pair.priceUsd) || 0,
+              liquidity,
+              volume24h: pair.volume?.h24 ?? 0,
+              priceChange24h: pair.priceChange?.h24 ?? 0,
+              fdv: pair.fdv ?? 0,
+              url: pair.url,
+            });
+          }
+        }
+        
+        await new Promise(r => setTimeout(r, 200)); // Rate limit
+      }
+    } catch (err: any) {
+      console.error(`CMC contract search error for ${symbol}:`, err.message);
+    }
   }
   
   // Sort by liquidity (highest first)
