@@ -351,7 +351,15 @@ export async function buySpotHedge(
  * Show wallet balances
  */
 export async function showBalances(address?: string): Promise<void> {
-  const addr = address ?? (process.env.PRIVATE_KEY ? getAddress() : process.env.WALLET_ADDRESS);
+  let addr = address;
+  
+  if (!addr) {
+    try {
+      addr = getAddress();
+    } catch {
+      addr = process.env.WALLET_ADDRESS;
+    }
+  }
   
   if (!addr) {
     console.log("❌ No wallet address configured");
