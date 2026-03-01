@@ -1,21 +1,74 @@
 import { ethers } from "ethers";
+import { execSync } from "child_process";
+import fs from "fs";
+import path from "path";
 import dotenv from "dotenv";
 
 dotenv.config();
 
 const HL_API = "https://api.hyperliquid.xyz";
+const WORKSPACE = process.env.WORKSPACE || "/root/.openclaw/workspace";
+const ENCRYPTED_KEY_FILE = path.join(WORKSPACE, "hl-funding-arb", "wallet.gpg");
+const PASSPHRASE_FILE = "/root/.wallet-key";
 
-// Get wallet from environment
-export function getWallet(): ethers.Wallet {
-  const pk = process.env.PRIVATE_KEY;
-  if (!pk) {
-    throw new Error("PRIVATE_KEY not set in .env");
+// Get private key - tries GPG first, then .env
+function getPrivateKey(): string {
+  // Method 1: GPG encrypted file (preferred)
+  if (fs.existsSync(ENCRYPTED_KEY_FILE) && fs.existsSync(PASSPHRASE_FILE)) {
+    try {
+      const decrypted = execSync(
+        `gpg --batch --yes --passphrase-file ${PASSPHRASE_FILE} --decrypt ${ENCRYPTED_KEY_FILE} 2>/dev/null`,
+        { encoding: "utf-8" }
+      ).trim();
+      if (decrypted.startsWith("0x")) {
+        return decrypted;
+      }
+      // Try parsing as JSON
+      const parsed = JSON.parse(decrypted);
+      if (parsed.privateKey) return parsed.privateKey;
+      if (parsed.pk) return parsed.pk;
+    } catch (err) {
+      // Fall through to .env
+    }
   }
+  
+  // Method 2: Plain text in .env (fallback)
+  const pk = process.env.PRIVATE_KEY;
+  if (pk) {
+    return pk;
+  }
+  
+  throw new Error(
+    "No private key found. Either:\n" +
+    "  1. Create wallet.gpg: echo '0x...' | gpg --batch --passphrase-file /root/.wallet-key -c -o wallet.gpg\n" +
+    "  2. Or set PRIVATE_KEY in .env"
+  );
+}
+
+// Get wallet from environment or encrypted file
+export function getWallet(): ethers.Wallet {
+  const pk = getPrivateKey();
   return new ethers.Wallet(pk);
 }
 
 export function getAddress(): string {
   return getWallet().address;
+}
+
+/**
+ * Encrypt and save a private key
+ */
+export function saveEncryptedKey(privateKey: string): void {
+  if (!fs.existsSync(PASSPHRASE_FILE)) {
+    throw new Error(`Passphrase file not found: ${PASSPHRASE_FILE}`);
+  }
+  
+  execSync(
+    `echo '${privateKey}' | gpg --batch --yes --passphrase-file ${PASSPHRASE_FILE} --symmetric --cipher-algo AES256 -o ${ENCRYPTED_KEY_FILE}`,
+    { stdio: "inherit" }
+  );
+  
+  console.log(`✅ Private key encrypted and saved to ${ENCRYPTED_KEY_FILE}`);
 }
 
 // Sign an action for Hyperliquid

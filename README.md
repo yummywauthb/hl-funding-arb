@@ -115,13 +115,31 @@ npx tsx src/index.ts buy 1000 XAUT0 USDC   # Buy $1000 of XAUT
 npx tsx src/index.ts buy 500 PAXG          # Buy $500 of PAXG
 ```
 
+## Wallet Setup (GPG Encrypted)
+
+Private keys are stored encrypted using GPG with the same passphrase as other wallets.
+
+```bash
+# Setup wallet (encrypts and saves)
+npx tsx src/index.ts wallet setup 0xYOUR_PRIVATE_KEY
+
+# Verify
+npx tsx src/index.ts wallet show
+```
+
+This creates `wallet.gpg` encrypted with `/root/.wallet-key` passphrase.
+
+**Alternative:** Set `PRIVATE_KEY` in `.env` (less secure, not recommended).
+
 ## Environment Variables
 
 ```bash
 # .env file
-PRIVATE_KEY=0x...          # Wallet private key (for trading)
 WALLET_ADDRESS=0x...       # Read-only wallet address (optional)
 DISCORD_WEBHOOK=https://...# Discord alerts webhook
+
+# Optional (use wallet.gpg instead)
+# PRIVATE_KEY=0x...        # Only if not using GPG
 ```
 
 ## Configuration

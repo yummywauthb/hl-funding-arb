@@ -19,6 +19,7 @@ import {
   buySpotHedge,
   showBalances,
 } from "./trading.js";
+import { saveEncryptedKey, getAddress } from "./wallet.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -246,6 +247,32 @@ async function main() {
       }
       break;
       
+    case "wallet":
+      // Wallet setup commands
+      const walletCmd = args[1];
+      
+      if (walletCmd === "setup") {
+        const pk = args[2];
+        if (!pk || !pk.startsWith("0x")) {
+          console.log("Usage: wallet setup <PRIVATE_KEY>");
+          console.log("Example: wallet setup 0x...");
+          console.log("\nThis will encrypt and save your private key using GPG.");
+          break;
+        }
+        saveEncryptedKey(pk);
+      } else if (walletCmd === "show") {
+        try {
+          console.log(`\n📍 Wallet address: ${getAddress()}\n`);
+        } catch (err: any) {
+          console.log(`❌ ${err.message}`);
+        }
+      } else {
+        console.log("Wallet commands:");
+        console.log("  wallet setup <PK>  Encrypt and save private key");
+        console.log("  wallet show        Show wallet address");
+      }
+      break;
+    
     case "balance":
     case "balances":
       await showBalances(args[1]);
