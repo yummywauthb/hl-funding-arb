@@ -1,0 +1,27 @@
+{
+  "name": "hl-funding-arb",
+  "version": "1.0.0",
+  "description": "Hyperliquid funding rate arbitrage scanner - finds opportunities across Ethereum, Base, and BSC",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "scan": "tsx src/index.ts scan",
+    "funding": "tsx src/index.ts funding",
+    "watch": "tsx src/index.ts watch",
+    "json": "tsx src/index.ts json"
+  },
+  "keywords": [
+    "hyperliquid",
+    "funding-rate",
+    "arbitrage",
+    "dexscreener",
+    "defi"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@types/node": "^22.13.5",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
