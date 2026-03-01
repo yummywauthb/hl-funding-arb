@@ -123,8 +123,10 @@ export async function searchTokenOnDex(symbol: string): Promise<DexPair[]> {
     console.error(`DexScreener search error for ${symbol}:`, err.message);
   }
   
-  // 2. If CMC is enabled, search by contract addresses
-  if (isCMCEnabled()) {
+  // 2. If CMC is enabled AND symbol search found nothing, try contract lookup
+  // (conserves CMC API credits - 10k/month limit)
+  if (isCMCEnabled() && results.length === 0) {
+    console.log(`      🔍 CMC fallback for ${symbol}...`);
     try {
       const contracts = await getCMCContractAddresses(symbol);
       

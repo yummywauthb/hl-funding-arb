@@ -38,9 +38,27 @@ interface CMCContractInfo {
   }[];
 }
 
-// Cache for CMC data
+// Cache for CMC data - long TTL to conserve credits (10k/month limit)
 const cmcCache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 300000; // 5 minutes
+const CACHE_TTL = 86400000; // 24 hours - contracts don't change often
+
+// Track API usage
+let apiCallsToday = 0;
+let lastResetDate = new Date().toDateString();
+
+function trackApiCall() {
+  const today = new Date().toDateString();
+  if (today !== lastResetDate) {
+    apiCallsToday = 0;
+    lastResetDate = today;
+  }
+  apiCallsToday++;
+  
+  // Warn if approaching limit (333/day for 10k/month)
+  if (apiCallsToday > 300) {
+    console.warn(`⚠️ CMC API: ${apiCallsToday} calls today (limit ~333/day)`);
+  }
+}
 
 async function fetchCMC(endpoint: string, params: Record<string, string> = {}): Promise<any> {
   if (!CMC_API_KEY) {
@@ -72,6 +90,7 @@ async function fetchCMC(endpoint: string, params: Record<string, string> = {}): 
     
     const data = await resp.json();
     cmcCache.set(cacheKey, { data, timestamp: Date.now() });
+    trackApiCall();
     return data;
   } catch (err: any) {
     console.error(`CMC fetch error: ${err.message}`);
