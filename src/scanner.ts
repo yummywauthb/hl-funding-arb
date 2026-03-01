@@ -29,6 +29,13 @@ export async function scanOpportunities(): Promise<ArbitrageOpportunity[]> {
     // Skip major coins that are harder to arb (already efficient)
     if (["BTC", "ETH", "SOL"].includes(rate.coin)) continue;
     
+    // Only show POSITIVE funding (shorts get paid) - this is the actionable strategy
+    // Negative funding requires shorting spot which is hard on DEXes
+    if (rate.fundingRate < 0) {
+      console.log(`   Skipping ${rate.coin} (negative funding - can't short spot on DEX)`);
+      continue;
+    }
+    
     console.log(`   Checking ${rate.coin} (${rate.annualizedRate.toFixed(1)}% APR)...`);
     
     const allPairs: DexPair[] = [];
