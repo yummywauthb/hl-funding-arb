@@ -2,6 +2,10 @@
 
 import { printReport, scanOpportunities, formatOpportunity } from "./scanner.js";
 import { getFundingRates } from "./hyperliquid.js";
+import { sendOpportunityAlert, sendSummaryAlert } from "./discord.js";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 async function main() {
   const args = process.argv.slice(2);
@@ -56,6 +60,28 @@ async function main() {
       console.log(JSON.stringify(opps, null, 2));
       break;
       
+    case "alert":
+      // Scan and send alerts to Discord
+      console.log("🔔 Scanning and sending Discord alerts...\n");
+      const alertOpps = await scanOpportunities();
+      
+      if (alertOpps.length === 0) {
+        console.log("No opportunities to alert.");
+        break;
+      }
+      
+      // Send summary
+      await sendSummaryAlert(alertOpps);
+      console.log(`✅ Sent summary alert (${alertOpps.length} opportunities)`);
+      
+      // Send individual alerts for top 3
+      for (const opp of alertOpps.slice(0, 3)) {
+        await sendOpportunityAlert(opp);
+        console.log(`✅ Sent alert for ${opp.coin}`);
+        await new Promise(r => setTimeout(r, 500));
+      }
+      break;
+      
     default:
       console.log(`
 Hyperliquid Funding Rate Arbitrage Scanner
@@ -67,12 +93,14 @@ Commands:
   scan      Scan for arbitrage opportunities (default)
   funding   Show all funding rates
   watch     Continuous monitoring mode
+  alert     Scan and send Discord alerts
   json      Output opportunities as JSON
 
 Examples:
   npx tsx src/index.ts scan
   npx tsx src/index.ts funding
-  npx tsx src/index.ts watch 600    # Refresh every 10 minutes
+  npx tsx src/index.ts alert         # Send to Discord
+  npx tsx src/index.ts watch 600     # Refresh every 10 minutes
 `);
   }
 }
