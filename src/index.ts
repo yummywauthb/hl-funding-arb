@@ -3,6 +3,14 @@
 import { printReport, scanOpportunities, formatOpportunity } from "./scanner.js";
 import { getFundingRates } from "./hyperliquid.js";
 import { sendOpportunityAlert, sendSummaryAlert } from "./discord.js";
+import { 
+  addPosition, 
+  removePosition, 
+  listPositions, 
+  runMonitor, 
+  showPositionStatus,
+  loadPositions 
+} from "./monitor.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -101,6 +109,81 @@ async function main() {
         await new Promise(r => setTimeout(r, 500));
       }
       break;
+    
+    case "monitor":
+      // Position monitoring commands
+      const monitorCmd = args[1] || "status";
+      
+      switch (monitorCmd) {
+        case "add": {
+          const coin = args[2]?.toUpperCase();
+          if (!coin) {
+            console.log("Usage: monitor add <COIN> [--threshold <APR%>]");
+            console.log("Example: monitor add MAVIA --threshold 5");
+            break;
+          }
+          
+          // Parse threshold from args
+          let threshold = 0;
+          const thresholdIdx = args.indexOf("--threshold");
+          if (thresholdIdx !== -1 && args[thresholdIdx + 1]) {
+            threshold = parseFloat(args[thresholdIdx + 1]);
+          }
+          
+          console.log(`\n📊 Adding ${coin} to monitor...`);
+          
+          // Get current funding rate
+          const rates = await getFundingRates();
+          const rate = rates.find(r => r.coin.toUpperCase() === coin);
+          
+          if (!rate) {
+            console.log(`❌ ${coin} not found on Hyperliquid`);
+            break;
+          }
+          
+          const pos = addPosition(coin, threshold, rate);
+          console.log(`✅ Added ${coin} to monitor`);
+          console.log(`   Entry funding: ${pos.entryFundingRate.toFixed(4)}% (8h)`);
+          console.log(`   Entry APR: ${pos.entryApr.toFixed(1)}%`);
+          console.log(`   Threshold: ${threshold}% APR`);
+          console.log(`   Alert when: funding flips OR APR < ${threshold}%\n`);
+          break;
+        }
+        
+        case "remove":
+        case "rm": {
+          const rmCoin = args[2]?.toUpperCase();
+          if (!rmCoin) {
+            console.log("Usage: monitor remove <COIN>");
+            break;
+          }
+          
+          if (removePosition(rmCoin)) {
+            console.log(`✅ Removed ${rmCoin} from monitor\n`);
+          } else {
+            console.log(`❌ ${rmCoin} not found in monitored positions\n`);
+          }
+          break;
+        }
+        
+        case "list":
+        case "ls": {
+          await showPositionStatus();
+          break;
+        }
+        
+        case "run": {
+          const interval = parseInt(args[2]) || 300;
+          await runMonitor(interval);
+          break;
+        }
+        
+        case "status":
+        default:
+          await showPositionStatus();
+          break;
+      }
+      break;
       
     default:
       console.log(`
@@ -110,17 +193,27 @@ Usage:
   npx tsx src/index.ts [command]
 
 Commands:
-  scan      Scan for arbitrage opportunities (default)
-  funding   Show all funding rates
-  watch     Continuous monitoring mode
-  alert     Scan and send Discord alerts
-  json      Output opportunities as JSON
+  scan              Scan for arbitrage opportunities (default)
+  funding           Show all funding rates
+  watch [secs]      Continuous scanning (default 300s)
+  alert             Scan and send Discord alerts
+  json              Output opportunities as JSON
+
+Position Monitoring:
+  monitor status         Show monitored positions
+  monitor add <COIN>     Add position to monitor
+    --threshold <APR%>   Alert when APR drops below (default: 0)
+  monitor remove <COIN>  Remove position from monitor
+  monitor run [secs]     Start monitoring loop (default 300s)
 
 Examples:
   npx tsx src/index.ts scan
   npx tsx src/index.ts funding
-  npx tsx src/index.ts alert         # Send to Discord
-  npx tsx src/index.ts watch 600     # Refresh every 10 minutes
+  npx tsx src/index.ts alert                      # Send to Discord
+  npx tsx src/index.ts watch 600                  # Scan every 10 min
+  npx tsx src/index.ts monitor add MAVIA          # Alert on flip only
+  npx tsx src/index.ts monitor add MAVIA --threshold 10   # Alert if <10% APR
+  npx tsx src/index.ts monitor run 300            # Check positions every 5 min
 `);
   }
 }

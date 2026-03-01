@@ -1,0 +1,12 @@
+{
+  "positions": [
+    {
+      "coin": "MAVIA",
+      "entryFundingRate": 0.07636717,
+      "entryApr": 83.62205115,
+      "entryPrice": 0.0338,
+      "threshold": 5,
+      "entryTime": 1772335502991
+    }
+  ]
+}
