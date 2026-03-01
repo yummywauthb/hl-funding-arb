@@ -20,6 +20,13 @@ import {
   showBalances,
 } from "./trading.js";
 import { saveEncryptedKey, getAddress } from "./wallet.js";
+import {
+  printGoldOpportunities,
+  openGoldPosition,
+  checkPosition,
+  closeGoldPosition,
+  monitorPosition,
+} from "./gold-arb.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -324,6 +331,57 @@ async function main() {
       
       const buyResult = await buySpotHedge(buyAsset, buyAmount, buyQuote);
       console.log(buyResult.success ? `✅ ${buyResult.message}` : `❌ ${buyResult.message}`);
+      break;
+    
+    case "gold":
+      // Gold arbitrage commands
+      const goldCmd = args[1] || "scan";
+      
+      switch (goldCmd) {
+        case "scan":
+          await printGoldOpportunities();
+          break;
+        
+        case "open":
+          const goldAmount = parseFloat(args[2]);
+          if (!goldAmount || goldAmount < 100) {
+            console.log("Usage: gold open <USD_AMOUNT>");
+            console.log("Example: gold open 1000");
+            console.log("Minimum: $100");
+            break;
+          }
+          await openGoldPosition(goldAmount);
+          break;
+        
+        case "status":
+          await checkPosition();
+          break;
+        
+        case "close":
+          await closeGoldPosition();
+          break;
+        
+        case "monitor":
+          const monitorInterval = parseInt(args[2]) || 300;
+          await monitorPosition(monitorInterval);
+          break;
+        
+        default:
+          console.log(`
+Gold Arbitrage Commands:
+
+  gold scan              Scan gold markets for opportunities
+  gold open <USD>        Open delta-neutral position
+  gold status            Check current position & PnL
+  gold close             Close position
+  gold monitor [secs]    Monitor & auto-close on funding flip
+
+Example:
+  npx tsx src/index.ts gold scan
+  npx tsx src/index.ts gold open 1000
+  npx tsx src/index.ts gold monitor 300
+`);
+      }
       break;
       
     default:
