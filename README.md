@@ -4,18 +4,26 @@ Scans Hyperliquid perpetual funding rates and finds matching spot pairs on DEXs 
 
 ## Strategy
 
-**Funding Rate Arbitrage** earns the funding rate by hedging:
+**SHORT perp + LONG spot** when funding is positive:
 
-| Funding Rate | Perp Action | Spot Action | Result |
-|--------------|-------------|-------------|--------|
-| **Positive** (>0%) | SHORT perp | LONG spot | Shorts receive funding from longs |
-| **Negative** (<0%) | LONG perp | SHORT spot | Longs receive funding from shorts |
+| Funding Rate | Action | Result |
+|--------------|--------|--------|
+| **Positive** (>0%) | SHORT perp + LONG spot | Shorts receive funding from longs ✅ |
+| ~~Negative~~ (<0%) | ~~LONG perp + SHORT spot~~ | Requires shorting spot on DEX — **not practical** ❌ |
+
+> ⚠️ This scanner only shows **positive funding** opportunities because you can't easily short spot on DEXes.
+
+### How It Works
+1. Find coins with **positive funding rate** (shorts get paid)
+2. **SHORT** the perp on Hyperliquid
+3. **LONG** the same amount in spot (buy on DEX or HL Spot)
+4. Collect funding every 8 hours while staying delta-neutral
 
 ### Example
-- DEGEN has +0.05% funding rate (8h) = ~54% APR
-- SHORT $10,000 DEGEN perp on Hyperliquid
-- LONG $10,000 DEGEN spot on Base (Uniswap)
-- Collect funding every 8 hours while market-neutral
+- MAVIA has +0.06% funding rate (8h) = ~65% APR
+- SHORT $3,000 MAVIA perp on Hyperliquid
+- LONG $3,000 MAVIA spot on Uniswap (Ethereum)
+- Collect ~$5.40/day in funding ($1,950/year on $3K position)
 
 ## Supported Spot Sources
 
