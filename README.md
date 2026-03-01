@@ -100,6 +100,64 @@ const CONFIG = {
 };
 ```
 
+## Cross-Asset Hedging (Gold Example)
+
+Some assets trade on multiple venues with different prices. For gold:
+
+| Asset | Type | Example Price |
+|-------|------|---------------|
+| km:GOLD | HL Perp (USDH) | $5,370 |
+| xyz:GOLD | HL Perp (USDC) | $5,378 |
+| PAXG | HL Perp (main) | $5,400 |
+| XAUT0 | HL Spot | $5,346 |
+| GLD | HL Spot | $477* |
+
+*\*GLD may have different tokenomics*
+
+**These are all gold-backed and can be used interchangeably for delta-neutral hedging.**
+
+### Handling Price Differences
+
+**Match DOLLAR value, not units:**
+
+```
+Position: $5,000 notional
+├── SHORT 0.931 km:GOLD @ $5,370 = $5,000
+└── LONG  0.935 XAUT    @ $5,346 = $5,000
+```
+
+### PnL Scenarios
+
+**Gold drops to $5,200 (-3.2%):**
+
+| Leg | Entry | Exit | PnL |
+|-----|-------|------|-----|
+| SHORT km:GOLD | $5,370 | $5,200 | +$158 |
+| LONG XAUT | $5,346 | $5,176 | -$159 |
+| **Net** | | | **≈ $0** |
+
+**Gold pumps to $5,500 (+2.4%):**
+
+| Leg | Entry | Exit | PnL |
+|-----|-------|------|-----|
+| SHORT km:GOLD | $5,370 | $5,500 | -$121 |
+| LONG XAUT | $5,346 | $5,475 | +$121 |
+| **Net** | | | **≈ $0** |
+
+### Best Execution
+
+1. **SHORT** whichever perp has highest funding (e.g., km:GOLD at 17% APR)
+2. **LONG** cheapest spot (e.g., XAUT @ $5,346 saves 1% vs PAXG)
+3. **Collect funding** while staying delta-neutral on gold exposure
+
+### Basis Risk
+
+The main risk is if the price *ratio* between assets changes:
+- If km:GOLD premium over XAUT **narrows** → profit on both legs
+- If km:GOLD premium over XAUT **widens** → loss on both legs
+
+Small price gaps ($24-54) are normal market premiums — as long as they stay relatively stable, you're farming funding for free.
+
 ## Risks
 
 ⚠️ **This is for educational purposes. Funding rate arbitrage has risks:**
