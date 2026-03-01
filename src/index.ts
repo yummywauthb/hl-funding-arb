@@ -9,7 +9,9 @@ import {
   listPositions, 
   runMonitor, 
   showPositionStatus,
-  loadPositions 
+  loadPositions,
+  loadConfig,
+  saveConfig
 } from "./monitor.js";
 import dotenv from "dotenv";
 
@@ -175,6 +177,59 @@ async function main() {
         case "run": {
           const interval = parseInt(args[2]) || 300;
           await runMonitor(interval);
+          break;
+        }
+        
+        case "wallet": {
+          const walletAddr = args[2];
+          if (!walletAddr) {
+            const config = loadConfig();
+            if (config.walletAddress) {
+              console.log(`\n📍 Current wallet: ${config.walletAddress}\n`);
+            } else {
+              console.log("\nNo wallet configured. Set one:");
+              console.log("  npx tsx src/index.ts monitor wallet 0x...\n");
+            }
+            break;
+          }
+          
+          const config = loadConfig();
+          config.walletAddress = walletAddr;
+          saveConfig(config);
+          console.log(`\n✅ Wallet set: ${walletAddr}`);
+          console.log("   Monitor will auto-detect SHORT positions from this wallet.\n");
+          break;
+        }
+        
+        case "threshold": {
+          const thresholdVal = parseFloat(args[2]);
+          if (isNaN(thresholdVal)) {
+            const config = loadConfig();
+            console.log(`\n📊 Default threshold: ${config.defaultThreshold}% APR`);
+            if (Object.keys(config.coinThresholds).length > 0) {
+              console.log("   Per-coin overrides:");
+              for (const [coin, thresh] of Object.entries(config.coinThresholds)) {
+                console.log(`   - ${coin}: ${thresh}%`);
+              }
+            }
+            console.log("\nSet threshold:");
+            console.log("  npx tsx src/index.ts monitor threshold 5       # Default 5% for all");
+            console.log("  npx tsx src/index.ts monitor threshold MAVIA 10  # 10% for MAVIA\n");
+            break;
+          }
+          
+          const coinForThresh = args[3]?.toUpperCase();
+          const config = loadConfig();
+          
+          if (coinForThresh) {
+            config.coinThresholds[coinForThresh] = thresholdVal;
+            saveConfig(config);
+            console.log(`\n✅ Threshold for ${coinForThresh}: ${thresholdVal}% APR\n`);
+          } else {
+            config.defaultThreshold = thresholdVal;
+            saveConfig(config);
+            console.log(`\n✅ Default threshold: ${thresholdVal}% APR\n`);
+          }
           break;
         }
         

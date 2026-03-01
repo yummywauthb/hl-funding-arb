@@ -1,10 +1,32 @@
-import { getFundingRates } from "./hyperliquid.js";
+import { getFundingRates, getWalletPositions, WalletPosition } from "./hyperliquid.js";
 import { sendDiscordAlert } from "./discord.js";
 import { FundingRate } from "./types.js";
 import fs from "fs";
 import path from "path";
 
 const POSITIONS_FILE = path.join(process.cwd(), "positions.json");
+const CONFIG_FILE = path.join(process.cwd(), "monitor-config.json");
+
+export interface MonitorConfig {
+  walletAddress?: string;
+  defaultThreshold: number;
+  coinThresholds: Record<string, number>;  // Per-coin threshold overrides
+}
+
+export function loadConfig(): MonitorConfig {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"));
+    }
+  } catch (err) {
+    console.error("Error loading config:", err);
+  }
+  return { defaultThreshold: 0, coinThresholds: {} };
+}
+
+export function saveConfig(config: MonitorConfig): void {
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+}
 
 export interface Position {
   coin: string;
@@ -167,12 +189,77 @@ export async function sendPositionAlert(alert: AlertCondition): Promise<void> {
 }
 
 export async function runMonitor(intervalSec: number = 300): Promise<void> {
+  const config = loadConfig();
+  
   console.log(`\n👁️ Starting position monitor (Ctrl+C to stop)`);
   console.log(`   Interval: ${intervalSec}s`);
-  console.log(`   Positions file: ${POSITIONS_FILE}\n`);
+  
+  if (config.walletAddress) {
+    console.log(`   Wallet: ${config.walletAddress}`);
+    console.log(`   Mode: Auto-detect SHORT positions from wallet`);
+  } else {
+    console.log(`   Mode: Manual positions from ${POSITIONS_FILE}`);
+  }
+  console.log(`   Default threshold: ${config.defaultThreshold}% APR\n`);
+  
+  // Track entry rates for wallet positions (persisted)
+  const entryRates = loadPositions();
   
   const check = async () => {
-    const positions = listPositions();
+    let positions: Position[] = [];
+    
+    if (config.walletAddress) {
+      // Auto-detect from wallet - only SHORT positions (funding arb)
+      const walletPositions = await getWalletPositions(config.walletAddress);
+      const shortPositions = walletPositions.filter(p => p.szi < 0);  // Negative = short
+      
+      if (shortPositions.length === 0) {
+        console.log(`[${new Date().toISOString()}] No SHORT positions in wallet`);
+        return;
+      }
+      
+      // Get current funding rates
+      const rates = await getFundingRates();
+      const rateMap = new Map(rates.map(r => [r.coin.toUpperCase(), r]));
+      
+      // Convert wallet positions to monitor positions
+      for (const wp of shortPositions) {
+        const rate = rateMap.get(wp.coin.toUpperCase());
+        if (!rate) continue;
+        
+        // Check if we have an entry rate stored
+        let existingPos = entryRates.positions.find(p => p.coin.toUpperCase() === wp.coin.toUpperCase());
+        
+        if (!existingPos) {
+          // New position - store entry rate
+          existingPos = {
+            coin: wp.coin.toUpperCase(),
+            entryFundingRate: rate.fundingRate,
+            entryApr: rate.annualizedRate,
+            entryPrice: wp.entryPx,
+            threshold: config.coinThresholds[wp.coin.toUpperCase()] ?? config.defaultThreshold,
+            entryTime: Date.now(),
+          };
+          entryRates.positions.push(existingPos);
+          savePositions(entryRates);
+          console.log(`   📝 New position detected: ${wp.coin} (entry APR: ${rate.annualizedRate.toFixed(1)}%)`);
+        }
+        
+        positions.push(existingPos);
+      }
+      
+      // Clean up closed positions
+      const activeCoins = new Set(shortPositions.map(p => p.coin.toUpperCase()));
+      const closedPositions = entryRates.positions.filter(p => !activeCoins.has(p.coin.toUpperCase()));
+      if (closedPositions.length > 0) {
+        entryRates.positions = entryRates.positions.filter(p => activeCoins.has(p.coin.toUpperCase()));
+        savePositions(entryRates);
+        console.log(`   🗑️ Removed closed positions: ${closedPositions.map(p => p.coin).join(", ")}`);
+      }
+    } else {
+      // Manual mode
+      positions = listPositions();
+    }
     
     if (positions.length === 0) {
       console.log(`[${new Date().toISOString()}] No positions to monitor`);
@@ -206,11 +293,10 @@ export async function runMonitor(intervalSec: number = 300): Promise<void> {
         console.log(`   Sent alert: ${alert.reason} for ${alert.position.coin}`);
         
         // Update last alert time
-        const data = loadPositions();
-        const pos = data.positions.find(p => p.coin === alert.position.coin);
+        const pos = entryRates.positions.find(p => p.coin === alert.position.coin);
         if (pos) {
           pos.lastAlertTime = Date.now();
-          savePositions(data);
+          savePositions(entryRates);
         }
         
         await new Promise(r => setTimeout(r, 500));
@@ -225,11 +311,72 @@ export async function runMonitor(intervalSec: number = 300): Promise<void> {
 }
 
 export async function showPositionStatus(): Promise<void> {
-  const positions = listPositions();
+  const config = loadConfig();
+  let positions: Position[] = [];
+  
+  if (config.walletAddress) {
+    // Wallet mode - show live positions
+    console.log(`\n📍 Wallet: ${config.walletAddress}`);
+    console.log(`   Mode: Auto-detect SHORT positions\n`);
+    
+    const walletPositions = await getWalletPositions(config.walletAddress);
+    const shortPositions = walletPositions.filter(p => p.szi < 0);
+    
+    if (shortPositions.length === 0) {
+      console.log("📭 No SHORT positions in wallet\n");
+      return;
+    }
+    
+    const rates = await getFundingRates();
+    const rateMap = new Map(rates.map(r => [r.coin.toUpperCase(), r]));
+    const storedPositions = loadPositions();
+    
+    console.log("📊 WALLET SHORT POSITIONS\n");
+    console.log("Coin".padEnd(10) + "Size".padEnd(14) + "Current APR".padEnd(14) + "Threshold".padEnd(12) + "Status");
+    console.log("-".repeat(70));
+    
+    for (const wp of shortPositions) {
+      const rate = rateMap.get(wp.coin.toUpperCase());
+      const stored = storedPositions.positions.find(p => p.coin.toUpperCase() === wp.coin.toUpperCase());
+      const threshold = config.coinThresholds[wp.coin.toUpperCase()] ?? config.defaultThreshold;
+      
+      if (!rate) {
+        console.log(`${wp.coin.padEnd(10)}${Math.abs(wp.szi).toFixed(2).padEnd(14)}${"N/A".padEnd(14)}${threshold.toString().padEnd(12)}❓ No rate`);
+        continue;
+      }
+      
+      let status = "✅ OK";
+      if (rate.fundingRate <= 0) {
+        status = "🚨 FLIPPED (paying!)";
+      } else if (rate.annualizedRate < threshold) {
+        status = "⚠️ Below threshold";
+      } else if (stored && rate.annualizedRate < stored.entryApr * 0.5) {
+        status = "📉 Down >50%";
+      }
+      
+      const emoji = rate.fundingRate > 0 ? "🟢" : "🔴";
+      const sizeStr = `$${Math.abs(wp.positionValue).toFixed(0)}`;
+      
+      console.log(
+        `${emoji} ${wp.coin}`.padEnd(10) +
+        sizeStr.padEnd(14) +
+        `${rate.annualizedRate.toFixed(1)}%`.padEnd(14) +
+        `${threshold}%`.padEnd(12) +
+        status
+      );
+    }
+    console.log("");
+    return;
+  }
+  
+  // Manual mode
+  positions = listPositions();
   
   if (positions.length === 0) {
     console.log("\n📭 No positions being monitored\n");
-    console.log("Add a position:");
+    console.log("Set wallet for auto-detection:");
+    console.log("  npx tsx src/index.ts monitor wallet 0x...\n");
+    console.log("Or add manually:");
     console.log("  npx tsx src/index.ts monitor add MAVIA --threshold 5\n");
     return;
   }

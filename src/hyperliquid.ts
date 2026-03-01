@@ -214,3 +214,68 @@ export async function getAvailableHLSpotCoins(): Promise<string[]> {
   const pairs = await getHLSpotPairs();
   return [...pairs.keys()];
 }
+
+// Wallet position types
+export interface WalletPosition {
+  coin: string;
+  szi: number;        // Signed size (negative = short)
+  entryPx: number;
+  positionValue: number;
+  unrealizedPnl: number;
+  leverage: number;
+  liquidationPx: number | null;
+  marginUsed: number;
+}
+
+interface HLClearinghouseState {
+  assetPositions: {
+    position: {
+      coin: string;
+      szi: string;
+      entryPx: string;
+      positionValue: string;
+      unrealizedPnl: string;
+      leverage: {
+        type: string;
+        value: number;
+      };
+      liquidationPx: string | null;
+      marginUsed: string;
+    };
+  }[];
+  crossMarginSummary: {
+    accountValue: string;
+    totalMarginUsed: string;
+    totalNtlPos: string;
+  };
+}
+
+export async function getWalletPositions(walletAddress: string): Promise<WalletPosition[]> {
+  const data: HLClearinghouseState = await fetchWithRetry(HL_API, {
+    type: "clearinghouseState",
+    user: walletAddress,
+  });
+  
+  const positions: WalletPosition[] = [];
+  
+  for (const ap of data.assetPositions) {
+    const pos = ap.position;
+    const szi = parseFloat(pos.szi);
+    
+    // Skip zero positions
+    if (szi === 0) continue;
+    
+    positions.push({
+      coin: pos.coin,
+      szi,
+      entryPx: parseFloat(pos.entryPx),
+      positionValue: parseFloat(pos.positionValue),
+      unrealizedPnl: parseFloat(pos.unrealizedPnl),
+      leverage: pos.leverage?.value ?? 1,
+      liquidationPx: pos.liquidationPx ? parseFloat(pos.liquidationPx) : null,
+      marginUsed: parseFloat(pos.marginUsed),
+    });
+  }
+  
+  return positions;
+}
