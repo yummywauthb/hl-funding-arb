@@ -1,4 +1,4 @@
-import { getFundingRates, getTopFundingOpportunities } from "./hyperliquid.js";
+import { getFundingRates, getTopFundingOpportunities, getHLSpotPrice, getAvailableHLSpotCoins } from "./hyperliquid.js";
 import { searchTokenOnDex, getBestSpotPair } from "./dexscreener.js";
 import { ArbitrageOpportunity, FundingRate, DexPair } from "./types.js";
 
@@ -19,6 +19,10 @@ export async function scanOpportunities(): Promise<ArbitrageOpportunity[]> {
   
   console.log(`   Found ${fundingRates.length} coins with >10% APR funding`);
   
+  // Get available HL spot coins for reference
+  const hlSpotCoins = await getAvailableHLSpotCoins();
+  console.log(`   HL Spot available: ${hlSpotCoins.length} coins`);
+  
   const opportunities: ArbitrageOpportunity[] = [];
   
   for (const rate of fundingRates) {
@@ -27,16 +31,35 @@ export async function scanOpportunities(): Promise<ArbitrageOpportunity[]> {
     
     console.log(`   Checking ${rate.coin} (${rate.annualizedRate.toFixed(1)}% APR)...`);
     
-    // Search for spot pairs
-    const spotPairs = await searchTokenOnDex(rate.coin);
+    const allPairs: DexPair[] = [];
     
-    if (spotPairs.length === 0) {
+    // 1. FIRST: Check Hyperliquid spot (priority)
+    const hlSpotPair = await getHLSpotPrice(rate.coin);
+    if (hlSpotPair) {
+      allPairs.push(hlSpotPair);
+      console.log(`      🟢 HL Spot: $${hlSpotPair.priceUsd.toFixed(6)}`);
+    }
+    
+    // 2. THEN: Search external DEXes (Ethereum, Base, BSC)
+    const dexPairs = await searchTokenOnDex(rate.coin);
+    if (dexPairs.length > 0) {
+      allPairs.push(...dexPairs);
+      console.log(`      📊 DEX pairs: ${dexPairs.length} found`);
+    }
+    
+    if (allPairs.length === 0) {
       console.log(`      ❌ No spot pairs found`);
       continue;
     }
     
-    const bestPair = getBestSpotPair(spotPairs);
-    if (!bestPair) continue;
+    // Sort: HL Spot first, then by liquidity
+    allPairs.sort((a, b) => {
+      if (a.chain === "hyperliquid" && b.chain !== "hyperliquid") return -1;
+      if (b.chain === "hyperliquid" && a.chain !== "hyperliquid") return 1;
+      return b.liquidity - a.liquidity;
+    });
+    
+    const bestPair = allPairs[0];
     
     // Calculate price difference
     const priceDiff = ((bestPair.priceUsd - rate.markPrice) / rate.markPrice) * 100;
@@ -64,7 +87,8 @@ export async function scanOpportunities(): Promise<ArbitrageOpportunity[]> {
       continue;
     }
     
-    console.log(`      ✅ Found ${spotPairs.length} pairs, best: ${bestPair.chain}/${bestPair.dex}`);
+    const bestChain = bestPair.chain === "hyperliquid" ? "HL Spot ⭐" : `${bestPair.chain}/${bestPair.dex}`;
+    console.log(`      ✅ Best: ${bestChain}`);
     
     opportunities.push({
       coin: rate.coin,
@@ -72,7 +96,7 @@ export async function scanOpportunities(): Promise<ArbitrageOpportunity[]> {
       annualizedRate: rate.annualizedRate,
       direction,
       perpPrice: rate.markPrice,
-      spotPairs,
+      spotPairs: allPairs,
       bestSpotPrice: bestPair.priceUsd,
       priceDiff,
       estimatedApr: effectiveApr,
@@ -104,9 +128,12 @@ export function formatOpportunity(opp: ArbitrageOpportunity): string {
   output += `   Spot:  $${opp.bestSpotPrice.toFixed(6)}\n`;
   output += `   Diff:  ${opp.priceDiff >= 0 ? "+" : ""}${opp.priceDiff.toFixed(2)}%\n\n`;
   
-  output += `🔗 Spot Pairs (by liquidity):\n`;
+  output += `🔗 Spot Pairs (priority: HL Spot > DEX liquidity):\n`;
   for (const pair of opp.spotPairs.slice(0, 5)) {
-    output += `   ${pair.chain.padEnd(10)} ${pair.dex.padEnd(12)} $${(pair.liquidity / 1000).toFixed(0)}k liq  ${pair.url}\n`;
+    const isHL = pair.chain === "hyperliquid";
+    const prefix = isHL ? "⭐" : "  ";
+    const chainLabel = isHL ? "HL Spot" : pair.chain;
+    output += `${prefix} ${chainLabel.padEnd(12)} ${(pair.dex || "").padEnd(12)} $${(pair.liquidity / 1000).toFixed(0)}k liq  ${pair.url}\n`;
   }
   
   output += `\n📈 Estimated APR: ${opp.estimatedApr.toFixed(1)}%\n`;
@@ -117,7 +144,7 @@ export function formatOpportunity(opp: ArbitrageOpportunity): string {
 export async function printReport(): Promise<void> {
   console.log("\n" + "🏦 HYPERLIQUID FUNDING RATE ARBITRAGE SCANNER".padStart(50) + "\n");
   console.log(`   Time: ${new Date().toISOString()}`);
-  console.log(`   Chains: Ethereum, Base, BSC`);
+  console.log(`   Spot Sources: Hyperliquid (priority), Ethereum, Base, BSC`);
   console.log(`   Min APR: ${CONFIG.minAnnualizedRate}%`);
   console.log(`   Min OI: $${(CONFIG.minOpenInterest / 1000).toFixed(0)}k\n`);
   
@@ -135,20 +162,25 @@ export async function printReport(): Promise<void> {
   }
   
   // Summary table
-  console.log("\n" + "=".repeat(70));
+  console.log("\n" + "=".repeat(80));
   console.log("📋 SUMMARY");
-  console.log("=".repeat(70));
-  console.log("Coin".padEnd(10) + "APR".padEnd(10) + "Direction".padEnd(10) + "PriceDiff".padEnd(12) + "BestChain");
-  console.log("-".repeat(70));
+  console.log("=".repeat(80));
+  console.log("Coin".padEnd(10) + "APR".padEnd(10) + "Direction".padEnd(10) + "PriceDiff".padEnd(12) + "BestSource".padEnd(15) + "HL Spot?");
+  console.log("-".repeat(80));
   
   for (const opp of opportunities) {
-    const bestPair = getBestSpotPair(opp.spotPairs);
+    const bestPair = opp.spotPairs[0];
+    const isHL = bestPair?.chain === "hyperliquid";
+    const bestSource = isHL ? "HL Spot ⭐" : (bestPair?.chain ?? "N/A");
+    const hlAvailable = opp.spotPairs.some(p => p.chain === "hyperliquid") ? "✅" : "❌";
+    
     console.log(
       opp.coin.padEnd(10) +
       `${opp.annualizedRate.toFixed(1)}%`.padEnd(10) +
       opp.direction.padEnd(10) +
       `${opp.priceDiff >= 0 ? "+" : ""}${opp.priceDiff.toFixed(2)}%`.padEnd(12) +
-      (bestPair?.chain ?? "N/A")
+      bestSource.padEnd(15) +
+      hlAvailable
     );
   }
   console.log("");

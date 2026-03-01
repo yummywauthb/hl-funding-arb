@@ -17,13 +17,15 @@ Scans Hyperliquid perpetual funding rates and finds matching spot pairs on DEXs 
 - LONG $10,000 DEGEN spot on Base (Uniswap)
 - Collect funding every 8 hours while market-neutral
 
-## Supported Chains
+## Supported Spot Sources
 
-- **Ethereum Mainnet**
-- **Base**
-- **Binance Smart Chain (BSC)**
+**Priority order:**
+1. ⭐ **Hyperliquid Spot** (native, lowest friction)
+2. **Ethereum Mainnet** (via DexScreener)
+3. **Base** (via DexScreener)
+4. **Binance Smart Chain** (via DexScreener)
 
-Uses [DexScreener](https://dexscreener.com) API to find spot pairs with liquidity.
+Uses Hyperliquid's native spot market first, then falls back to [DexScreener](https://dexscreener.com) API for external DEXes.
 
 ## Installation
 
