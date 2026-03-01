@@ -13,6 +13,12 @@ import {
   loadConfig,
   saveConfig
 } from "./monitor.js";
+import {
+  transferFunds,
+  swapStables,
+  buySpotHedge,
+  showBalances,
+} from "./trading.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -240,6 +246,59 @@ async function main() {
       }
       break;
       
+    case "balance":
+    case "balances":
+      await showBalances(args[1]);
+      break;
+    
+    case "transfer":
+      // Transfer between spot and perps
+      const transferAmount = parseFloat(args[1]);
+      const transferDir = args[2] as "spot_to_perp" | "perp_to_spot";
+      
+      if (!transferAmount || !["spot_to_perp", "perp_to_spot"].includes(transferDir)) {
+        console.log("Usage: transfer <amount> <spot_to_perp|perp_to_spot>");
+        console.log("Example: transfer 1000 spot_to_perp");
+        break;
+      }
+      
+      const transferResult = await transferFunds(transferAmount, transferDir);
+      console.log(transferResult.success ? `✅ ${transferResult.message}` : `❌ ${transferResult.message}`);
+      break;
+    
+    case "swap":
+      // Swap stablecoins
+      const swapAmount = parseFloat(args[1]);
+      const fromCoin = args[2]?.toUpperCase();
+      const toCoin = args[3]?.toUpperCase();
+      
+      if (!swapAmount || !fromCoin || !toCoin) {
+        console.log("Usage: swap <amount> <FROM> <TO>");
+        console.log("Example: swap 500 USDC USDH");
+        break;
+      }
+      
+      const swapResult = await swapStables(fromCoin, toCoin, swapAmount);
+      console.log(swapResult.success ? `✅ ${swapResult.message}` : `❌ ${swapResult.message}`);
+      break;
+    
+    case "buy":
+      // Buy spot asset for hedging
+      const buyAmount = parseFloat(args[1]);
+      const buyAsset = args[2]?.toUpperCase();
+      const buyQuote = args[3]?.toUpperCase() || "USDC";
+      
+      if (!buyAmount || !buyAsset) {
+        console.log("Usage: buy <usd_amount> <ASSET> [QUOTE]");
+        console.log("Example: buy 1000 XAUT0 USDC");
+        console.log("         buy 500 PAXG");
+        break;
+      }
+      
+      const buyResult = await buySpotHedge(buyAsset, buyAmount, buyQuote);
+      console.log(buyResult.success ? `✅ ${buyResult.message}` : `❌ ${buyResult.message}`);
+      break;
+      
     default:
       console.log(`
 Hyperliquid Funding Rate Arbitrage Scanner
@@ -261,14 +320,19 @@ Position Monitoring:
   monitor remove <COIN>  Remove position from monitor
   monitor run [secs]     Start monitoring loop (default 300s)
 
+Trading (requires PRIVATE_KEY in .env):
+  balance [address]      Show wallet balances
+  transfer <amt> <dir>   Transfer spot↔perps (spot_to_perp|perp_to_spot)
+  swap <amt> <FROM> <TO> Swap stablecoins (e.g., USDC → USDH)
+  buy <usd> <ASSET>      Buy spot asset for hedging (e.g., XAUT0)
+
 Examples:
   npx tsx src/index.ts scan
-  npx tsx src/index.ts funding
-  npx tsx src/index.ts alert                      # Send to Discord
-  npx tsx src/index.ts watch 600                  # Scan every 10 min
-  npx tsx src/index.ts monitor add MAVIA          # Alert on flip only
-  npx tsx src/index.ts monitor add MAVIA --threshold 10   # Alert if <10% APR
-  npx tsx src/index.ts monitor run 300            # Check positions every 5 min
+  npx tsx src/index.ts balance
+  npx tsx src/index.ts transfer 1000 spot_to_perp
+  npx tsx src/index.ts swap 500 USDC USDH
+  npx tsx src/index.ts buy 1000 XAUT0 USDC
+  npx tsx src/index.ts monitor add MAVIA --threshold 10
 `);
   }
 }

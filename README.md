@@ -87,6 +87,43 @@ npx tsx src/index.ts json
 📈 Estimated APR: 48.9%
 ```
 
+## Trading Commands
+
+Requires `PRIVATE_KEY` in `.env` file.
+
+### Check Balances
+```bash
+npx tsx src/index.ts balance                    # Your wallet
+npx tsx src/index.ts balance 0x123...           # Any address
+```
+
+### Transfer Spot ↔ Perps
+```bash
+npx tsx src/index.ts transfer 1000 spot_to_perp  # Move $1000 to perps
+npx tsx src/index.ts transfer 500 perp_to_spot   # Move $500 to spot
+```
+
+### Swap Stablecoins
+```bash
+npx tsx src/index.ts swap 500 USDC USDH    # For km: markets
+npx tsx src/index.ts swap 500 USDC USDT0   # For USDT pairs
+```
+
+### Buy Spot Hedge
+```bash
+npx tsx src/index.ts buy 1000 XAUT0 USDC   # Buy $1000 of XAUT
+npx tsx src/index.ts buy 500 PAXG          # Buy $500 of PAXG
+```
+
+## Environment Variables
+
+```bash
+# .env file
+PRIVATE_KEY=0x...          # Wallet private key (for trading)
+WALLET_ADDRESS=0x...       # Read-only wallet address (optional)
+DISCORD_WEBHOOK=https://...# Discord alerts webhook
+```
+
 ## Configuration
 
 Edit `src/scanner.ts` to adjust:
