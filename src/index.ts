@@ -38,16 +38,36 @@ async function main() {
       break;
       
     case "watch":
-      // Continuous monitoring mode
+      // Continuous monitoring mode with Discord alerts
       console.log("👁️ Starting continuous monitoring (Ctrl+C to stop)...\n");
       
       const interval = parseInt(args[1]) || 300; // Default 5 minutes
-      console.log(`   Refresh interval: ${interval}s\n`);
+      console.log(`   Refresh interval: ${interval}s`);
+      console.log(`   Discord alerts: ${process.env.DISCORD_WEBHOOK ? "enabled" : "disabled"}\n`);
+      
+      let lastAlerted = new Set<string>();
       
       const runScan = async () => {
-        console.clear();
-        await printReport();
-        console.log(`\n⏰ Next scan in ${interval}s... (Ctrl+C to stop)`);
+        console.log(`\n[${new Date().toISOString()}] Scanning...`);
+        const watchOpps = await scanOpportunities();
+        
+        // Find new opportunities (not alerted in last cycle)
+        const newOpps = watchOpps.filter(o => !lastAlerted.has(o.coin));
+        
+        if (newOpps.length > 0 && process.env.DISCORD_WEBHOOK) {
+          console.log(`📢 ${newOpps.length} new opportunities, sending alerts...`);
+          await sendSummaryAlert(newOpps);
+          
+          for (const opp of newOpps.slice(0, 3)) {
+            await sendOpportunityAlert(opp);
+            await new Promise(r => setTimeout(r, 500));
+          }
+        }
+        
+        // Update last alerted set
+        lastAlerted = new Set(watchOpps.map(o => o.coin));
+        
+        console.log(`✅ Found ${watchOpps.length} opportunities. Next scan in ${interval}s...`);
       };
       
       await runScan();
